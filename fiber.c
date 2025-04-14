@@ -80,11 +80,11 @@ static int resize_fiber_list(fiber_main_t *main)
 
     main->empty.indices = indices;
 
-    for (unsigned i = 0; i < extend; i++)
-        main->empty.indices[i] = main->n + i;
-
     main->n += extend;
     main->empty.n = extend;
+
+    for (unsigned i = 0; i < extend; i++)
+        main->empty.indices[i] = main->n - 1 - i;
 
     return extend;
 }
