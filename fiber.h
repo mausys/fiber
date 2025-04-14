@@ -6,6 +6,7 @@
 typedef uint64_t fid_t;
 #define FIBER_INDEX_MASK UINT32_MAX
 #define FIBER_ID_INVAL UINT64_MAX
+#define FIBER_ID_SHIFT 32
 
 typedef struct fiber fiber_t;
 typedef struct fiber_main fiber_main_t;

@@ -30,6 +30,7 @@ struct fiber {
 struct fiber_main {
     ucontext_t ctx;
     unsigned n;
+    uint32_t uid;
     fid_t current;
     fiber_t **list;
     struct {
@@ -97,14 +98,14 @@ static int add_fiber(fiber_main_t *main, fiber_t *fiber)
             return r;
     }
 
-    int idx = main->empty.indices[main->empty.n - 1];
+    fid_t idx = main->empty.indices[main->empty.n - 1];
     main->empty.n--;
 
     main->list[idx] = fiber;
 
     fiber->main = main;
-    fiber->id = idx;
-
+    fiber->id = idx | ((fid_t)main->uid << FIBER_ID_SHIFT)  ;
+    main->uid++;
 
     return idx;
 }
@@ -278,13 +279,14 @@ int fiber_delete(fiber_t *fiber)
 
     fiber_main_t *main = fiber->main;
 
-    unsigned idx = fiber->id % UINT32_MAX;
+    unsigned idx = fiber->id & FIBER_INDEX_MASK;
 
     main->list[idx] = NULL;
 
     main->empty.n++;
     main->empty.indices[main->empty.n - 1] = idx;
 
+    free(fiber->ctx.uc_stack.ss_sp);
     free(fiber);
     return 0;
 }
