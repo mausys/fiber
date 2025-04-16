@@ -121,6 +121,22 @@ static void fiber_entry(void)
 }
 
 
+static void fiber_delete(fiber_t *fiber)
+{
+    fiber_main_t *main = fiber->main;
+
+    unsigned idx = fiber->id & FIBER_INDEX_MASK;
+
+    main->list[idx] = NULL;
+
+    main->empty.n++;
+    main->empty.indices[main->empty.n - 1] = idx;
+
+    free(fiber->ctx.uc_stack.ss_sp);
+    free(fiber);
+}
+
+
 static void exec_fiber(fiber_t *fiber)
 {
     fiber->main->current = fiber->id;
@@ -269,27 +285,6 @@ fail_alloc:
     return NULL;
 }
 
-
-int fiber_delete(fiber_t *fiber)
-{
-    if ((fiber->state != STATE_TERMINATED)
-        && (fiber->state != STATE_NEW)) {
-        return -1;
-    }
-
-    fiber_main_t *main = fiber->main;
-
-    unsigned idx = fiber->id & FIBER_INDEX_MASK;
-
-    main->list[idx] = NULL;
-
-    main->empty.n++;
-    main->empty.indices[main->empty.n - 1] = idx;
-
-    free(fiber->ctx.uc_stack.ss_sp);
-    free(fiber);
-    return 0;
-}
 
 
 fiber_t* fiber_self(void)

@@ -21,7 +21,6 @@ int fiber_main_run(fiber_main_t* main);
 fiber_t* fiber_self(void);
 
 fiber_t* fiber_new(fiber_main_t *main, size_t stack_sice, fiber_start_fn start, void* user_data);
-int fiber_delete(fiber_t *fiber);
 fid_t fiber_get_id(const fiber_t *fiber);
 
 
