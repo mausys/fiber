@@ -17,14 +17,18 @@ typedef enum {
 } state_t;
 
 
-typedef struct fiber {
+typedef struct fiber_main fiber_main_t;
+typedef struct fiber fiber_t;
+
+
+struct fiber {
     ucontext_t ctx;
     state_t state;
     fiber_main_t *main;
     fid_t id;
     fiber_start_fn start;
     void *user_data;
-} fiber_t;
+};
 
 
 struct fiber_main {
@@ -44,9 +48,28 @@ struct fiber_main {
 };
 
 
+static fiber_main_t* fiber_main_new(void);
 
-static fid_t round_robin(fiber_main_t* main, fid_t current, void *user_data)
+
+static fiber_main_t *fiber_main_instance(void)
 {
+    static fiber_main_t *main = NULL;
+
+    if (!main)
+        main = fiber_main_new();
+
+    return main;
+}
+
+
+
+static fid_t round_robin(fid_t current, void *user_data)
+{
+    fiber_main_t *main = fiber_main_instance();
+
+    if (!main)
+        return FIBER_ID_INVAL;
+
     unsigned start = current == FIBER_ID_INVAL ? 0 : (current & FIBER_INDEX_MASK) + 1;
 
     for (unsigned i = 0; i < main->n; i++) {
@@ -110,10 +133,55 @@ static int add_fiber(fiber_main_t *main, fiber_t *fiber)
     return idx;
 }
 
+static fiber_main_t* fiber_main_new(void)
+{
+    fiber_main_t *main = malloc(sizeof(fiber_main_t));
+
+    if (!main)
+        goto fail_alloc;
+
+    *main = (fiber_main_t) {
+        .current = FIBER_ID_INVAL,
+        .sched.next = round_robin,
+    };
+
+    main->list = calloc(NUM_THREADS, sizeof(fiber_t*));
+
+    if (!main->list)
+        goto fail_alloc_list;
+
+    main->n = NUM_THREADS;
+
+    main->empty.indices = malloc(main->n * sizeof(unsigned));
+
+    if (!main->empty.indices)
+        goto fail_alloc_empty;
+
+    main->empty.n = main->n;
+
+    for (unsigned i = 0; i < main->empty.n; i++)
+        main->empty.indices[i] = main->empty.n - 1 - i;
+
+    return main;
+
+fail_alloc_empty:
+    free(main->list);
+fail_alloc_list:
+    free(main);
+fail_alloc:
+    return NULL;
+}
+
+
+
+
 
 static fiber_t* current_fiber(void)
 {
     fiber_main_t *main = fiber_main_instance();
+
+    if (!main)
+        return NULL;
 
     unsigned index = main->current & FIBER_INDEX_MASK;
 
@@ -158,67 +226,27 @@ static void exec_fiber(fiber_t *fiber)
 }
 
 
-static fiber_main_t* fiber_main_new(void)
+
+
+void fiber_main_set_sched(fiber_next_fn next, void *user_data)
 {
-    fiber_main_t *main = malloc(sizeof(fiber_main_t));
+    fiber_main_t *main = fiber_main_instance();
 
     if (!main)
-        goto fail_alloc;
+        return;
 
-    *main = (fiber_main_t) {
-        .current = FIBER_ID_INVAL,
-        .sched.next = round_robin,
-    };
-
-    main->list = calloc(NUM_THREADS, sizeof(fiber_t*));
-
-    if (!main->list)
-        goto fail_alloc_list;
-
-    main->n = NUM_THREADS;
-
-    main->empty.indices = malloc(main->n * sizeof(unsigned));
-
-    if (!main->empty.indices)
-        goto fail_alloc_empty;
-
-    main->empty.n = main->n;
-
-    for (unsigned i = 0; i < main->empty.n; i++)
-        main->empty.indices[i] = main->empty.n - 1 - i;
-
-    return main;
-
-fail_alloc_empty:
-    free(main->list);
-fail_alloc_list:
-    free(main);
-fail_alloc:
-    return NULL;
-}
-
-
-fiber_main_t *fiber_main_instance(void)
-{
-    static fiber_main_t *main = NULL;
-
-
-    if (!main)
-        main = fiber_main_new();
-
-    return main;
-}
-
-
-void fiber_main_set_sched(fiber_main_t* main, fiber_next_fn next, void *user_data)
-{
     main->sched.next = next;
     main->sched.user_data = user_data;
 }
 
 
-int fiber_main_run(fiber_main_t *main)
+int fiber_run(void)
 {
+    fiber_main_t *main = fiber_main_instance();
+
+    if (!main)
+        return -ENOMEM;
+
     int r = -EINVAL;
 
     if (main->current != FIBER_ID_INVAL)
@@ -228,7 +256,7 @@ int fiber_main_run(fiber_main_t *main)
         if (!main->sched.next)
             break;
 
-        fid_t fid = main->sched.next(main, main->current, main->sched.user_data);
+        fid_t fid = main->sched.next(main->current, main->sched.user_data);
 
         if (fid == FIBER_ID_INVAL) {
             r = 0;
@@ -255,8 +283,13 @@ int fiber_main_run(fiber_main_t *main)
 }
 
 
-fid_t fiber_new(fiber_main_t *main, size_t stack_size, fiber_start_fn start, void* user_data)
+fid_t fiber_new(size_t stack_size, fiber_start_fn start, void* user_data)
 {
+    fiber_main_t *main = fiber_main_instance();
+
+    if (!main)
+        return FIBER_ID_INVAL;
+
     fiber_t *fiber = malloc(sizeof(fiber_t));
 
     if (!fiber)
