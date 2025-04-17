@@ -50,15 +50,14 @@ struct fiber_main {
 
 static fiber_main_t* fiber_main_new(void);
 
+ static fiber_main_t *g_main_fiber = NULL;
 
 static fiber_main_t *fiber_main_instance(void)
 {
-    static fiber_main_t *main = NULL;
+    if (!g_main_fiber)
+        g_main_fiber = fiber_main_new();
 
-    if (!main)
-        main = fiber_main_new();
-
-    return main;
+    return g_main_fiber;
 }
 
 
@@ -226,7 +225,28 @@ static void exec_fiber(fiber_t *fiber)
 }
 
 
+void fiber_reset(void)
+{
+    fiber_main_t *main = fiber_main_instance();
 
+    if (!main)
+        return;
+
+    for (unsigned i = 0; i < main->n; i++) {
+        if (!main->list[i])
+            continue;
+
+        fiber_delete(main->list[i]);
+    }
+
+    free(main->list);
+
+    free(main->empty.indices);
+
+    free(main);
+
+    g_main_fiber = NULL;
+}
 
 void fiber_main_set_sched(fiber_next_fn next, void *user_data)
 {

@@ -22,6 +22,7 @@ fid_t fiber_new(size_t stack_sice, fiber_start_fn start, void* user_data);
 
 
 void fiber_yield(void);
+void fiber_reset(void);
 
 
 
