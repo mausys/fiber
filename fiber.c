@@ -249,8 +249,8 @@ int fiber_main_run(fiber_main_t *main)
             break;
 
         exec_fiber(fiber);
-
     }
+
     return r;
 }
 
