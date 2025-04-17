@@ -228,14 +228,14 @@ int fiber_main_run(fiber_main_t *main)
         if (!main->sched.next)
             break;
 
-        fid_t next = main->sched.next(main, main->current, main->sched.user_data);
+        fid_t fid = main->sched.next(main, main->current, main->sched.user_data);
 
-        if (next == FIBER_ID_INVAL) {
+        if (fid == FIBER_ID_INVAL) {
             r = 0;
             break;
         }
 
-        unsigned index = next & FIBER_INDEX_MASK;
+        unsigned index = fid & FIBER_INDEX_MASK;
 
         if (index >= main->n)
             break;
@@ -243,6 +243,9 @@ int fiber_main_run(fiber_main_t *main)
         fiber_t *fiber = main->list[index];
 
         if (!fiber)
+            break;
+
+        if (fid != fiber->id)
             break;
 
         exec_fiber(fiber);
