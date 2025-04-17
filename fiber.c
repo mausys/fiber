@@ -17,14 +17,14 @@ typedef enum {
 } state_t;
 
 
-struct fiber {
+typedef struct fiber {
     ucontext_t ctx;
     state_t state;
     fiber_main_t *main;
     fid_t id;
     fiber_start_fn start;
     void *user_data;
-};
+} fiber_t;
 
 
 struct fiber_main {
@@ -111,9 +111,21 @@ static int add_fiber(fiber_main_t *main, fiber_t *fiber)
 }
 
 
+static fiber_t* current_fiber(void)
+{
+    fiber_main_t *main = fiber_main_instance();
+
+    unsigned index = main->current & FIBER_INDEX_MASK;
+
+    if (index >= main->n)
+        return NULL;
+
+    return main->list[index];
+}
+
 static void fiber_entry(void)
 {
-    fiber_t* self = fiber_self();
+    fiber_t* self = current_fiber();
 
     self->start(self->user_data);
 
@@ -240,7 +252,7 @@ int fiber_main_run(fiber_main_t *main)
 }
 
 
-fiber_t* fiber_new(fiber_main_t *main, size_t stack_size, fiber_start_fn start, void* user_data)
+fid_t fiber_new(fiber_main_t *main, size_t stack_size, fiber_start_fn start, void* user_data)
 {
     fiber_t *fiber = malloc(sizeof(fiber_t));
 
@@ -274,7 +286,7 @@ fiber_t* fiber_new(fiber_main_t *main, size_t stack_size, fiber_start_fn start, 
     if (r < 0)
         goto fail_add;
 
-    return fiber;
+    return fiber->id;
 
 fail_add:
     free(stack);
@@ -282,15 +294,19 @@ fail_stack:
 fail_getcontext:
     free(fiber);
 fail_alloc:
-    return NULL;
+    return FIBER_ID_INVAL;
 }
 
 
 
-fiber_t* fiber_self(void)
+fid_t fiber_self(void)
 {
-    fiber_main_t *main = fiber_main_instance();
-    return main->list[main->current & FIBER_INDEX_MASK];
+    fiber_t *fiber = current_fiber();
+
+    if (!fiber)
+        return FIBER_ID_INVAL;
+
+    return fiber->id;
 }
 
 
@@ -302,7 +318,7 @@ fid_t fiber_get_id(const fiber_t *fiber)
 
 void fiber_yield(void)
 {
-    fiber_t *fiber = fiber_self();
+    fiber_t *fiber = current_fiber();
 
     if (!fiber)
         return;
