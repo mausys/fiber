@@ -7,6 +7,9 @@
 #include <stdbool.h>
 #include <ucontext.h>
 
+
+#include <sys/queue.h>
+
 #define NUM_THREADS 16
 
 typedef enum {
@@ -22,6 +25,7 @@ typedef struct fiber fiber_t;
 
 
 struct fiber {
+    CIRCLEQ_ENTRY(fiber) qe;
     ucontext_t ctx;
     state_t state;
     fiber_main_t *main;
@@ -37,6 +41,7 @@ struct fiber_main {
     uint32_t uid;
     fid_t current;
     fiber_t **list;
+    CIRCLEQ_HEAD(active_q, fiber) active;
     struct {
         unsigned n;
         unsigned *indices;
@@ -69,17 +74,25 @@ static fid_t round_robin(fid_t current, void *user_data)
     if (!main)
         return FIBER_ID_INVAL;
 
-    unsigned start = current == FIBER_ID_INVAL ? 0 : (current & FIBER_INDEX_MASK) + 1;
+    if (!CIRCLEQ_FIRST(&main->active))
+        return FIBER_ID_INVAL;
 
-    for (unsigned i = 0; i < main->n; i++) {
-        unsigned idx = (start + i) % main->n;
+    if (current == FIBER_ID_INVAL)
+        return CIRCLEQ_FIRST(&main->active)->id;
 
-        if (main->list[idx]) {
-            return main->list[idx]->id;
-        }
-    }
+    unsigned index = current & FIBER_INDEX_MASK;
 
-    return FIBER_ID_INVAL;
+    if (index >= main->n)
+        return FIBER_ID_INVAL;
+
+    fiber_t *fiber = main->list[index];
+
+    if (!fiber)
+        return FIBER_ID_INVAL;
+
+    fiber_t *next = CIRCLEQ_NEXT(fiber, qe);
+
+    return next->id;
 }
 
 
@@ -129,6 +142,8 @@ static int add_fiber(fiber_main_t *main, fiber_t *fiber)
     fiber->id = idx | ((fid_t)main->uid << FIBER_ID_SHIFT)  ;
     main->uid++;
 
+    CIRCLEQ_INSERT_HEAD(&main->active, fiber, qe);
+
     return idx;
 }
 
@@ -143,6 +158,8 @@ static fiber_main_t* fiber_main_new(void)
         .current = FIBER_ID_INVAL,
         .sched.next = round_robin,
     };
+
+    CIRCLEQ_INIT(&main->active);
 
     main->list = calloc(NUM_THREADS, sizeof(fiber_t*));
 
@@ -170,9 +187,6 @@ fail_alloc_list:
 fail_alloc:
     return NULL;
 }
-
-
-
 
 
 static fiber_t* current_fiber(void)
@@ -211,6 +225,8 @@ static void fiber_delete(fiber_t *fiber)
     main->empty.n++;
     main->empty.indices[main->empty.n - 1] = idx;
 
+    CIRCLEQ_REMOVE(&main->active, fiber, qe);
+
     free(fiber->ctx.uc_stack.ss_sp);
     free(fiber);
 }
@@ -220,8 +236,6 @@ static void exec_fiber(fiber_t *fiber)
 {
     fiber->main->current = fiber->id;
     swapcontext(&fiber->main->ctx, &fiber->ctx);
-    if (fiber->state == STATE_TERMINATED)
-        fiber_delete(fiber);
 }
 
 
@@ -248,7 +262,7 @@ void fiber_reset(void)
     g_main_fiber = NULL;
 }
 
-void fiber_set_sched(fiber_next_fn next, void *user_data)
+void fiber_main_set_sched(fiber_next_fn next, void *user_data)
 {
     fiber_main_t *main = fiber_main_instance();
 
@@ -272,11 +286,18 @@ int fiber_run(void)
     if (main->current != FIBER_ID_INVAL)
         return -EALREADY;
 
+    fiber_t *fiber = NULL;
+
     for (;;) {
         if (!main->sched.next)
             break;
 
         fid_t fid = main->sched.next(main->current, main->sched.user_data);
+
+        if (fiber) {
+            if (fiber->state == STATE_TERMINATED)
+                fiber_delete(fiber);
+        }
 
         if (fid == FIBER_ID_INVAL) {
             r = 0;
@@ -288,7 +309,7 @@ int fiber_run(void)
         if (index >= main->n)
             break;
 
-        fiber_t *fiber = main->list[index];
+        fiber = main->list[index];
 
         if (!fiber)
             break;
