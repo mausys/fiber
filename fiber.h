@@ -12,7 +12,7 @@ typedef void (*fiber_start_fn)(void *);
 typedef fid_t (*fiber_next_fn)(fid_t current, void *user_data);
 
 
-void fiber_main_set_sched(fiber_next_fn next, void *user_data);
+void fiber_set_sched(fiber_next_fn next, void *user_data);
 
 int fiber_run(void);
 
