@@ -262,7 +262,7 @@ void fiber_reset(void)
     g_main_fiber = NULL;
 }
 
-void fiber_main_set_sched(fiber_next_fn next, void *user_data)
+void fiber_set_sched(fiber_next_fn next, void *user_data)
 {
     fiber_main_t *main = fiber_main_instance();
 
